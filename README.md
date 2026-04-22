@@ -54,7 +54,7 @@ AI Agent 原本的联网能力（WebSearch、WebFetch）缺少调度策略和浏
 
 <details><summary>v2.4.1 更新</summary>
 
-- **跨平台支持** — 脚本从 bash 迁移到 Node.js，Windows / Linux / macOS 均可使用
+- **跨平台支持** — 本分支的脚本已改为 Python 实现，Windows / Linux / macOS 均可使用
 - **DOM 边界穿透** — 新增技术事实：eval 递归遍历可穿透 Shadow DOM、iframe 等选择器不可跨越的边界
 </details>
 
@@ -103,15 +103,16 @@ git clone https://github.com/eze-is/web-access ~/.claude/skills/web-access
 
 ## 前置配置（CDP 模式）
 
-CDP 模式需要 **Node.js 22+** 和 Chrome 开启远程调试：
+CDP 模式需要 **Python 3.8+**、`websocket-client` 和 Chrome 开启远程调试：
 
 1. Chrome 地址栏打开 `chrome://inspect/#remote-debugging`
 2. 勾选 **Allow remote debugging for this browser instance**（可能需要重启浏览器）
+3. 安装依赖：`pip install websocket-client`
 
 环境检查（Agent 运行时会自动完成前置检查，无需手动执行）：
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs"
+python "${CLAUDE_SKILL_DIR}/scripts/check-deps.py"
 # $CLAUDE_SKILL_DIR 是 skill 加载时自动设置的环境变量
 # 手动运行请替换为实际路径，如 ~/.claude/skills/web-access
 ```
@@ -122,7 +123,7 @@ Proxy 通过 WebSocket 直连 Chrome（兼容 `chrome://inspect` 方式，无需
 
 ```bash
 # 启动（Agent 会自动管理 Proxy 生命周期，无需手动启动）
-node "${CLAUDE_SKILL_DIR}/scripts/cdp-proxy.mjs" &
+python "${CLAUDE_SKILL_DIR}/scripts/cdp-proxy.py" &
 
 # 页面操作
 curl -s "http://localhost:3456/new?url=https://example.com"     # 新建 tab

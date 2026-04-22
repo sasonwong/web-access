@@ -17,13 +17,14 @@ metadata:
 在开始联网操作前，先检查 CDP 模式可用性：
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/check-deps.mjs"
+python "${CLAUDE_SKILL_DIR:-$PWD}/scripts/check-deps.py"
 ```
 
 若 `CLAUDE_SKILL_DIR` 未注入，请先 `cd` 到 skill 根目录再运行。
 
 未通过时引导用户完成设置：
-- **Node.js 22+**：必需（使用原生 WebSocket）。版本低于 22 可用但需安装 `ws` 模块。
+- **Python 3.8+**：必需。
+- **websocket-client**：`pip install websocket-client`（仅 cdp-proxy 需要；check-deps、match-site、find-url 无额外依赖）。
 - **Chrome remote-debugging**：在 Chrome 地址栏打开 `chrome://inspect/#remote-debugging`，勾选 **"Allow remote debugging for this browser instance"** 即可，可能需要重启浏览器。
 
 检查通过后并必须在回复中向用户直接展示以下须知，再启动 CDP Proxy 执行操作：
@@ -75,7 +76,7 @@ node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/check-deps.mjs"
 用户指向**本人访问过的页面**（"我之前看的那个讲 X 的文章"、"上次打开过的 XX 面板"）或**组织内部系统**（"我们的 XX 平台"、"公司那个 YY 系统"等公网搜不到的目标）时，检索本地 Chrome 书签/历史：
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/find-url.mjs" [关键词...] [--only bookmarks|history] [--limit N] [--since 1d|7h|YYYY-MM-DD] [--sort recent|visits]
+python "${CLAUDE_SKILL_DIR:-$PWD}/scripts/find-url.py" [关键词...] [--only bookmarks|history] [--limit N] [--since 1d|7h|YYYY-MM-DD] [--sort recent|visits]
 ```
 
 关键词空格分词、多词 AND，匹配 title + url（可省略）；`--since` / `--sort` 仅作用于历史；默认按最近访问倒序，`--sort visits` 按访问次数排序（适合"高频访问的网站"这类场景）。
@@ -99,10 +100,10 @@ node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/find-url.mjs" [关键词...] [--only boo
 ### 启动
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/check-deps.mjs"
+python "${CLAUDE_SKILL_DIR:-$PWD}/scripts/check-deps.py"
 ```
 
-脚本会依次检查 Node.js、Chrome 端口，并确保 Proxy 已连接（未运行则自动启动并等待）。Proxy 启动后持续运行。
+脚本会依次检查 Python 版本、Chrome 端口，并确保 Proxy 已连接（未运行则自动启动并等待）。Proxy 启动后持续运行。
 
 ### Proxy API
 
