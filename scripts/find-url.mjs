@@ -23,6 +23,22 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
+function commandExists(cmd) {
+  try {
+    execFileSync(process.platform === 'win32' ? 'where' : 'which', [cmd], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isWsl() {
+  return process.platform === 'linux' && (
+    !!process.env.WSL_INTEROP ||
+    os.release().toLowerCase().includes('microsoft')
+  );
+}
+
 // --- 参数解析 -----------------------------------------------------------
 function parseArgs(argv) {
   const a = { keywords: [], only: null, limit: 20, since: null, sort: 'recent' };
@@ -60,13 +76,59 @@ function printUsage() { console.error(fs.readFileSync(new URL(import.meta.url)).
 
 // --- Chrome 用户数据目录（跨平台） ---------------------------------------
 function getChromeDataDir() {
+  const envDir = process.env.CHROME_USER_DATA_DIR;
+  if (envDir && fs.existsSync(envDir)) return envDir;
+
   const home = os.homedir();
+  const candidates = [];
+
   switch (os.platform()) {
-    case 'darwin': return path.join(home, 'Library/Application Support/Google/Chrome');
-    case 'linux':  return path.join(home, '.config/google-chrome');
-    case 'win32':  return path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/User Data');
-    default: return null;
+    case 'darwin':
+      candidates.push(
+        path.join(home, 'Library/Application Support/Google/Chrome'),
+        path.join(home, 'Library/Application Support/Microsoft Edge'),
+      );
+      break;
+    case 'linux':
+      candidates.push(
+        path.join(home, '.config/google-chrome'),
+        path.join(home, '.config/microsoft-edge'),
+        path.join(home, '.config/chromium'),
+      );
+      break;
+    case 'win32': {
+      const localAppData = process.env.LOCALAPPDATA || '';
+      candidates.push(
+        path.join(localAppData, 'Google/Chrome/User Data'),
+        path.join(localAppData, 'Microsoft/Edge/User Data'),
+      );
+      break;
+    }
+    default:
+      break;
   }
+
+  if (isWsl() && fs.existsSync('/mnt/c/Users')) {
+    try {
+      const users = fs.readdirSync('/mnt/c/Users', { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const user of users) {
+        candidates.push(
+          path.join('/mnt/c/Users', user, 'AppData/Local/Google/Chrome/User Data'),
+          path.join('/mnt/c/Users', user, 'AppData/Local/Microsoft/Edge/User Data'),
+        );
+      }
+    } catch {
+      // ignore WSL path scan errors and continue with existing candidates
+    }
+  }
+
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+
+  return null;
 }
 
 // --- Profile 枚举 -------------------------------------------------------
@@ -135,13 +197,33 @@ function searchHistory(profileDir, profileName, keywords, since, limit, sort) {
       FROM urls WHERE ${conds.join(' AND ')}
       ORDER BY ${orderBy} LIMIT ${limitClause};`;
 
-    const raw = execFileSync('sqlite3', ['-separator', '\t', tmp, sql], { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
+    let raw = '';
+    if (commandExists('sqlite3')) {
+      raw = execFileSync('sqlite3', ['-separator', '\t', tmp, sql], { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
+    } else if (commandExists('python3')) {
+      const py = [
+        'import sqlite3, sys',
+        'db, q = sys.argv[1], sys.argv[2]',
+        'con = sqlite3.connect(db)',
+        'cur = con.execute(q)',
+        'for row in cur:',
+        "    print('\\t'.join('' if v is None else str(v) for v in row))",
+        'con.close()',
+      ].join('\n');
+      raw = execFileSync('python3', ['-c', py, tmp, sql], { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
+    } else {
+      die('未找到 sqlite3 或 python3。请安装 sqlite3（WSL: `sudo apt install sqlite3`，Windows: `winget install sqlite.sqlite`）或设置可用的 python3。');
+    }
     return raw.trim().split('\n').filter(Boolean).map(line => {
       const [title, url, visit, visit_count] = line.split('\t');
       return { profile: profileName, title, url, visit, visit_count: parseInt(visit_count, 10) };
     });
   } catch (e) {
-    if (e.code === 'ENOENT') die('未找到 sqlite3 命令。macOS/Linux 通常自带；Windows 可用 `winget install sqlite.sqlite` 或从 https://sqlite.org/download.html 下载后加入 PATH。');
+    if (e.code === 'ENOENT') die('未找到 sqlite3 命令。macOS/Linux 通常自带；WSL 可用 `sudo apt install sqlite3`；Windows 可用 `winget install sqlite.sqlite`。');
+    if (e.status !== undefined) {
+      const stderr = String(e.stderr || '').trim();
+      die(stderr ? `历史数据库查询失败: ${stderr}` : '历史数据库查询失败');
+    }
     return [];
   } finally {
     try { fs.unlinkSync(tmp); } catch {}
@@ -176,7 +258,9 @@ function printHistory(items, multiProfile, sortLabel) {
 const args = parseArgs(process.argv.slice(2));
 
 const dataDir = getChromeDataDir();
-if (!dataDir || !fs.existsSync(dataDir)) die('未找到 Chrome 用户数据目录');
+if (!dataDir || !fs.existsSync(dataDir)) {
+  die('未找到可用浏览器用户数据目录（已尝试 Chrome/Edge）。可通过 CHROME_USER_DATA_DIR 指定目录，例如 /mnt/c/Users/<用户名>/AppData/Local/Microsoft/Edge/User Data。');
+}
 
 const profiles = listProfiles(dataDir);
 const doBookmarks = args.only !== 'history';
