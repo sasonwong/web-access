@@ -499,6 +499,35 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(data)
                     return
 
+            elif pathname == "/printPDF":
+                sid = ensure_session(q["target"])
+                landscape = q.get("landscape", "").lower() == "true"
+                paper_width = float(q.get("paperWidth", "210")) / 25.4
+                paper_height = float(q.get("paperHeight", "297")) / 25.4
+                resp = send_cdp("Page.printToPDF", {
+                    "landscape": landscape,
+                    "paperWidth": paper_width,
+                    "paperHeight": paper_height,
+                    "marginTop": float(q.get("marginTop", "31.8")) / 25.4,
+                    "marginBottom": float(q.get("marginBottom", "31.8")) / 25.4,
+                    "marginLeft": float(q.get("marginLeft", "25.4")) / 25.4,
+                    "marginRight": float(q.get("marginRight", "25.4")) / 25.4,
+                    "printBackground": q.get("printBackground", "true") != "false",
+                    "preferCSSPageSize": q.get("preferCSSPageSize", "").lower() == "true",
+                }, sid)
+                data = base64.b64decode(resp["result"]["data"])
+                file_path = q.get("file")
+                if file_path:
+                    Path(file_path).write_bytes(data)
+                    self.send_json({"saved": file_path})
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/pdf")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+
             elif pathname == "/info":
                 sid = ensure_session(q["target"])
                 resp = send_cdp("Runtime.evaluate", {
@@ -525,6 +554,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/setFiles?target=": "POST body=JSON{selector,files} - 文件上传",
                         "/scroll?target=&y=&direction=": "GET - 滚动页面",
                         "/screenshot?target=&file=": "GET - 截图",
+                        "/printPDF?target=&file=": "GET - 将页面打印为 PDF（可选参数 format/landscape/margin*）",
                     }
                 }, 404)
 
