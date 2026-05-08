@@ -516,6 +516,32 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // GET /printPDF?target=xxx[&format=A4][&landscape=false] - 将页面打印为 PDF
+    else if (pathname === '/printPDF') {
+      const sid = await ensureSession(q.target);
+      const landscape = q.landscape === 'true';
+      const paperWidth = q.paperWidth || '210';   // mm, A4 宽
+      const paperHeight = q.paperHeight || '297';  // mm, A4 高
+      const resp = await sendCDP('Page.printToPDF', {
+        landscape,
+        paperWidth: parseFloat(paperWidth) / 25.4,  // 转英寸
+        paperHeight: parseFloat(paperHeight) / 25.4,
+        marginTop: parseFloat(q.marginTop || '31.8') / 25.4,   // 默认 3.18cm
+        marginBottom: parseFloat(q.marginBottom || '31.8') / 25.4,  // 默认 3.18cm
+        marginLeft: parseFloat(q.marginLeft || '25.4') / 25.4,  // 默认 2.54cm
+        marginRight: parseFloat(q.marginRight || '25.4') / 25.4,  // 默认 2.54cm
+        printBackground: q.printBackground !== 'false',
+        preferCSSPageSize: q.preferCSSPageSize === 'true',
+      }, sid);
+      if (q.file) {
+        fs.writeFileSync(q.file, Buffer.from(resp.result.data, 'base64'));
+        res.end(JSON.stringify({ saved: q.file }));
+      } else {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.end(Buffer.from(resp.result.data, 'base64'));
+      }
+    }
+
     // GET /info?target=xxx - 获取页面信息
     else if (pathname === '/info') {
       const sid = await ensureSession(q.target);
@@ -542,6 +568,7 @@ const server = http.createServer(async (req, res) => {
           '/click?target=': 'POST body=CSS选择器 - 点击元素',
           '/scroll?target=&y=&direction=': 'GET - 滚动页面',
           '/screenshot?target=&file=': 'GET - 截图',
+          '/printPDF?target=&file=': 'GET - 将页面打印为 PDF（可选参数 format/landscape/margin*）',
         },
       }));
     }

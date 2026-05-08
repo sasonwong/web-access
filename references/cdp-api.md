@@ -88,6 +88,21 @@ curl -s "http://localhost:3456/scroll?target=ID&direction=bottom"
 curl -s "http://localhost:3456/screenshot?target=ID&file=/tmp/shot.png"
 ```
 
+### GET /printPDF?target=ID&file=/tmp/output.pdf
+将当前页面渲染为 PDF。默认 A4 纵向，上下边距 3.18cm，左右边距 2.54cm。支持自定义参数：
+- `landscape=true` — 横向
+- `paperWidth` / `paperHeight` — 纸张尺寸（mm）
+- `marginTop` / `marginBottom` / `marginLeft` / `marginRight` — 边距（mm）
+- `printBackground=false` — 不打印背景色
+- `preferCSSPageSize=true` — 优先使用 CSS @page 尺寸
+```bash
+# 基本用法：保存到文件
+curl -s "http://localhost:3456/printPDF?target=ID&file=/tmp/output.pdf"
+
+# 直接返回 PDF 二进制（不指定 file）
+curl -s "http://localhost:3456/printPDF?target=ID" -o /tmp/output.pdf
+```
+
 ## /eval 使用提示
 
 - POST body 为任意 JS 表达式，返回 `{ value }` 或 `{ error }`

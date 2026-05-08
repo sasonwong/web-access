@@ -143,6 +143,15 @@ curl -s "http://localhost:3456/scroll?target=ID&direction=bottom"
 
 # 关闭 tab
 curl -s "http://localhost:3456/close?target=ID"
+
+# 打印为 PDF — 将页面渲染为 PDF 文件，默认 A4 纵向（上下边距 3.18cm，左右边距 2.54cm）
+curl -s "http://localhost:3456/printPDF?target=ID&file=/tmp/output.pdf"
+
+# 打印为 PDF（横向）
+curl -s "http://localhost:3456/printPDF?target=ID&file=/tmp/output.pdf&landscape=true"
+
+# 打印为 PDF（自定义纸张和边距，单位 mm）
+curl -s "http://localhost:3456/printPDF?target=ID&file=/tmp/output.pdf&paperWidth=420&paperHeight=297&marginTop=10&marginBottom=10&marginLeft=15&marginRight=15"
 ```
 
 ### 页面内导航
