@@ -22,6 +22,20 @@ from types import SimpleNamespace
 WEBKIT_EPOCH_DIFF_US = 11644473600000000
 
 
+def is_wsl() -> bool:
+    if sys.platform != "linux":
+        return False
+    if "WSL_INTEROP" in os.environ:
+        return True
+    try:
+        release = os.uname().release.lower()
+        if "microsoft" in release or "wsl" in release:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def die(message: str) -> "NoReturn":
     print(message, file=sys.stderr)
     raise SystemExit(1)
@@ -71,6 +85,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def get_chrome_data_dir() -> Path | None:
+    env_dir = os.environ.get("CHROME_USER_DATA_DIR")
+    if env_dir:
+        path = Path(env_dir)
+        if path.exists():
+            return path
+
     home = Path.home()
     if sys.platform == "darwin":
         candidates = [
@@ -88,26 +108,30 @@ def get_chrome_data_dir() -> Path | None:
             home / ".config/chromium",
             home / ".config/microsoft-edge",
         ]
-        local_app_data = get_windows_local_app_data()
-        if local_app_data is not None:
-            candidates.extend(
-                [
-                    local_app_data / "Google/Chrome/User Data",
-                    local_app_data / "Chromium/User Data",
-                    local_app_data / "Microsoft/Edge/User Data",
-                ]
-            )
-        mounted_windows = Path("/mnt")
-        if mounted_windows.exists():
-            candidates.extend(
-                sorted(mounted_windows.glob("*/Users/*/AppData/Local/Google/Chrome/User Data"))
-            )
-            candidates.extend(
-                sorted(mounted_windows.glob("*/Users/*/AppData/Local/Chromium/User Data"))
-            )
-            candidates.extend(
-                sorted(mounted_windows.glob("*/Users/*/AppData/Local/Microsoft/Edge/User Data"))
-            )
+        wsl = is_wsl()
+        if wsl:
+            local_app_data = get_windows_local_app_data()
+            if local_app_data is not None:
+                candidates.extend(
+                    [
+                        local_app_data / "Google/Chrome/User Data",
+                        local_app_data / "Chromium/User Data",
+                        local_app_data / "Microsoft/Edge/User Data",
+                    ]
+                )
+            try:
+                users_dir = Path("/mnt/c/Users")
+                if users_dir.exists():
+                    for user_d in users_dir.iterdir():
+                        if user_d.is_dir():
+                            candidates.extend(
+                                [
+                                    user_d / "AppData/Local/Google/Chrome/User Data",
+                                    user_d / "AppData/Local/Microsoft/Edge/User Data",
+                                ]
+                            )
+            except PermissionError:
+                pass
         for candidate in candidates:
             if candidate.exists():
                 return candidate
@@ -265,7 +289,8 @@ def search_history(
             ]
         finally:
             connection.close()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        print(f"历史数据库查询失败: {e}", file=sys.stderr)
         return []
     finally:
         try:
@@ -308,7 +333,7 @@ def run(argv: list[str]) -> int:
     args = parse_args(argv)
     data_dir = get_chrome_data_dir()
     if data_dir is None or not data_dir.exists():
-        die("未找到 Chrome 用户数据目录")
+        die("未找到可用浏览器用户数据目录（已尝试 Chrome/Edge）。可通过 CHROME_USER_DATA_DIR 指定目录，例如 /mnt/c/Users/<用户名>/AppData/Local/Microsoft/Edge/User Data。")
 
     profiles = list_profiles(data_dir)
     do_bookmarks = args.only != "history"
