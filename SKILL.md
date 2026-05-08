@@ -80,6 +80,8 @@ node "${CLAUDE_SKILL_DIR:-$PWD}/scripts/find-url.mjs" [关键词...] [--only boo
 
 关键词空格分词、多词 AND，匹配 title + url（可省略）；`--since` / `--sort` 仅作用于历史；默认按最近访问倒序，`--sort visits` 按访问次数排序（适合"高频访问的网站"这类场景）。
 
+WSL 环境下可通过 `CHROME_USER_DATA_DIR` 环境变量指定 Windows 浏览器用户数据目录，例如 `/mnt/c/Users/<用户名>/AppData/Local/Microsoft/Edge/User Data`。未指定时自动扫描 `/mnt/c/Users/` 下的 Chrome/Edge 目录。
+
 ### 程序化操作与 GUI 交互
 
 浏览器内操作页面有两种方式：

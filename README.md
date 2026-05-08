@@ -132,6 +132,7 @@ curl -s -X POST "http://localhost:3456/clickAt?target=ID" -d '.upload-btn'  # �
 curl -s -X POST "http://localhost:3456/setFiles?target=ID" \
   -d '{"selector":"input[type=file]","files":["/path/to/file.png"]}'        # 文件上传
 curl -s "http://localhost:3456/screenshot?target=ID&file=/tmp/shot.png"     # 截图
+curl -s "http://localhost:3456/printPDF?target=ID&file=/tmp/output.pdf"    # 打印为 PDF
 curl -s "http://localhost:3456/scroll?target=ID&direction=bottom"           # 滚动
 curl -s "http://localhost:3456/close?target=ID"                             # 关闭 tab
 ```
