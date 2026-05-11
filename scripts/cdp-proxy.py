@@ -35,6 +35,10 @@ pending: dict = {}  # id -> threading.Event + result
 pending_lock = threading.Lock()
 sessions: dict = {}  # targetId -> sessionId
 sessions_lock = threading.Lock()
+managed_tabs: dict = {}  # targetId -> {"last_accessed": float}
+managed_tabs_lock = threading.Lock()
+TAB_IDLE_TIMEOUT = float(os.environ.get("CDP_TAB_IDLE_TIMEOUT", "900000")) / 1000.0  # 15 min default, convert ms to seconds
+CLEANUP_INTERVAL = 60.0  # sweep every 60s
 port_guarded_sessions: set = set()
 chrome_port: int | None = None
 chrome_ws_path: str | None = None
@@ -165,6 +169,8 @@ def on_close(ws, close_status_code, close_msg):
     chrome_ws_path = None
     with sessions_lock:
         sessions.clear()
+    with managed_tabs_lock:
+        managed_tabs.clear()
     ws_connected.clear()
     print("[CDP Proxy] 连接断开")
 
@@ -268,6 +274,51 @@ def enable_port_guard(session_id: str):
         pass
 
 
+# --- 闲置 Tab 自动清理 ---
+
+def touch_tab(target_id: str):
+    with managed_tabs_lock:
+        entry = managed_tabs.get(target_id)
+        if entry:
+            entry["last_accessed"] = time.monotonic()
+
+
+def cleanup_idle_tabs():
+    now = time.monotonic()
+    to_close = []
+    with managed_tabs_lock:
+        for target_id, info in list(managed_tabs.items()):
+            if now - info["last_accessed"] >= TAB_IDLE_TIMEOUT:
+                to_close.append(target_id)
+    for target_id in to_close:
+        try:
+            send_cdp("Target.closeTarget", {"targetId": target_id}, timeout=5.0)
+        except Exception:
+            pass
+        with sessions_lock:
+            sessions.pop(target_id, None)
+        with managed_tabs_lock:
+            managed_tabs.pop(target_id, None)
+        print(f"[CDP Proxy] Auto-closed idle tab: {target_id}")
+
+
+def close_all_managed_tabs():
+    targets = []
+    with managed_tabs_lock:
+        targets = list(managed_tabs.keys())
+    for target_id in targets:
+        try:
+            send_cdp("Target.closeTarget", {"targetId": target_id}, timeout=5.0)
+        except Exception:
+            pass
+        with sessions_lock:
+            sessions.pop(target_id, None)
+        with managed_tabs_lock:
+            managed_tabs.pop(target_id, None)
+    if targets:
+        print(f"[CDP Proxy] Shutdown: closed {len(targets)} managed tab(s)")
+
+
 def ensure_session(target_id: str) -> str:
     with sessions_lock:
         if target_id in sessions:
@@ -328,10 +379,15 @@ class Handler(BaseHTTPRequestHandler):
             if pathname == "/health":
                 connected = bool(ws_app and ws_app.sock and ws_app.sock.connected)
                 self.send_json({"status": "ok", "connected": connected,
-                                "sessions": len(sessions), "chromePort": chrome_port})
+                                "sessions": len(sessions),
+                                "managedTabs": len(managed_tabs),
+                                "chromePort": chrome_port})
                 return
 
             connect()
+
+            if q.get("target"):
+                touch_tab(q["target"])
 
             if pathname == "/targets":
                 resp = send_cdp("Target.getTargets")
@@ -343,6 +399,8 @@ class Handler(BaseHTTPRequestHandler):
                 target_url = q.get("url", "about:blank")
                 resp = send_cdp("Target.createTarget", {"url": target_url, "background": True})
                 target_id = resp["result"]["targetId"]
+                with managed_tabs_lock:
+                    managed_tabs[target_id] = {"last_accessed": time.monotonic()}
                 if target_url != "about:blank":
                     try:
                         sid = ensure_session(target_id)
@@ -355,6 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                 resp = send_cdp("Target.closeTarget", {"targetId": q.get("target")})
                 with sessions_lock:
                     sessions.pop(q.get("target"), None)
+                with managed_tabs_lock:
+                    managed_tabs.pop(q.get("target"), None)
                 self.send_json(resp.get("result", {}))
 
             elif pathname == "/navigate":
@@ -606,10 +666,26 @@ def main():
             print(f"[CDP Proxy] 初始连接失败: {e}（将在首次请求时重试）")
     threading.Thread(target=try_connect, daemon=True).start()
 
+    def cleanup_loop():
+        while True:
+            time.sleep(CLEANUP_INTERVAL)
+            cleanup_idle_tabs()
+    timer_thread = threading.Thread(target=cleanup_loop, daemon=True)
+    timer_thread.start()
+
+    def shutdown(sig: str):
+        print(f"[CDP Proxy] {sig}, cleaning up...")
+        close_all_managed_tabs()
+        os._exit(0)
+
+    import signal
+    signal.signal(signal.SIGINT, lambda s, f: shutdown("SIGINT"))
+    signal.signal(signal.SIGTERM, lambda s, f: shutdown("SIGTERM"))
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        shutdown("SIGINT")
 
 
 if __name__ == "__main__":
