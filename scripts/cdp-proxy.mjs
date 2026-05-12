@@ -86,7 +86,10 @@ async function discoverChromePort() {
     const ok = await checkPort(port);
     if (ok) {
       console.log(`[CDP Proxy] 扫描发现 Chrome 调试端口: ${port}`);
-      return { port, wsPath: null };
+      // 尝试从 /json/version 获取完整的 WebSocket URL（含 UUID），
+      // 适配 WSL 等无法读取 DevToolsActivePort 文件的场景
+      const wsPath = await fetchWsPath(port);
+      return { port, wsPath };
     }
   }
 
@@ -102,6 +105,22 @@ function checkPort(port) {
     socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
     socket.once('error', () => { clearTimeout(timer); resolve(false); });
   });
+}
+
+// 从 Chrome HTTP 端点获取完整的 WebSocket URL（含 UUID 路径）
+// 适配 WSL、Docker 等 DevToolsActivePort 文件不可读的场景
+async function fetchWsPath(port) {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) });
+    const data = await resp.json();
+    if (data.webSocketDebuggerUrl) {
+      const url = new URL(data.webSocketDebuggerUrl);
+      const wsPath = url.pathname + url.search;
+      console.log(`[CDP Proxy] 从 /json/version 获取 WebSocket 路径: ${wsPath}`);
+      return wsPath;
+    }
+  } catch {}
+  return null;
 }
 
 function getWebSocketUrl(port, wsPath) {
