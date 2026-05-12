@@ -57,6 +57,24 @@ def check_port(port: int, host: str = "127.0.0.1", timeout: float = 2.0) -> bool
         return False
 
 
+def fetch_ws_path_from_version(port: int) -> str | None:
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/json/version")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            ws_url = data.get("webSocketDebuggerUrl", "")
+            if ws_url:
+                parsed = urlparse(ws_url)
+                ws_path = parsed.path
+                if parsed.query:
+                    ws_path += "?" + parsed.query
+                print(f"[CDP Proxy] 从 /json/version 获取 WebSocket 路径: {ws_path}")
+                return ws_path
+    except Exception:
+        pass
+    return None
+
+
 def active_port_files() -> list:
     home = Path.home()
     system = platform.system()
@@ -95,7 +113,8 @@ def discover_chrome_port() -> tuple[int, str | None] | None:
     for port in [9222, 9229, 9333]:
         if check_port(port):
             print(f"[CDP Proxy] 扫描发现 Chrome 调试端口: {port}")
-            return port, None
+            ws_path = fetch_ws_path_from_version(port)
+            return port, ws_path
     return None
 
 
